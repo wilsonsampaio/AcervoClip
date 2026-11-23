@@ -1,0 +1,8 @@
+{
+  "name": "AcervoClip",
+  "description": "Sistema para buscar posts e vídeos interessantes nas redes sociais por tipo de vídeo, baixar e salvar arquivos organizados automaticamente em pastas por categoria.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
