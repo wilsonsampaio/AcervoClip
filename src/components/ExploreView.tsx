@@ -14,6 +14,11 @@ import type {
   SocialPostResult,
   VideoTypeFilter,
 } from '../types';
+import {
+  NETWORK_GROUP_LABELS,
+  SOCIAL_NETWORKS,
+  type SocialNetworkDefinition,
+} from '../constants/networks';
 import { isSafeExternalUrl } from '../utils/format';
 import { MediaThumb } from './MediaThumb';
 
@@ -29,7 +34,8 @@ interface ExploreViewProps {
   onSearch: (
     query: string,
     platform: SocialPlatform,
-    videoType: VideoTypeFilter
+    videoType: VideoTypeFilter,
+    customPlatform?: string
   ) => Promise<void>;
   onInspectUrl: (url: string, videoType: VideoTypeFilter) => Promise<void>;
   onDownloadPost: (post: SocialPostResult, categorySlug: string) => Promise<void>;
@@ -49,14 +55,12 @@ const VIDEO_TYPES: Array<{ id: VideoTypeFilter; label: string }> = [
   { id: 'viral', label: 'Em Alta / Virais' },
 ];
 
-const PLATFORMS: Array<{ id: SocialPlatform; label: string }> = [
-  { id: 'todas', label: 'Todas as Redes' },
-  { id: 'youtube', label: 'YouTube' },
-  { id: 'tiktok', label: 'TikTok' },
-  { id: 'instagram', label: 'Instagram' },
-  { id: 'x', label: 'X (Twitter)' },
-  { id: 'reddit', label: 'Reddit' },
-  { id: 'archive', label: 'Acervo Aberto (.MP4)' },
+const NETWORK_GROUP_ORDER: SocialNetworkDefinition['group'][] = [
+  'universal',
+  'principais',
+  'comunidades',
+  'streaming',
+  'descentralizadas',
 ];
 
 const QUICK_TOPICS: Array<{
@@ -78,13 +82,19 @@ const QUICK_TOPICS: Array<{
     platform: 'todas',
   },
   {
-    label: 'Design UI/UX & Movimento',
-    query: 'UI UX motion design showcase',
-    videoType: 'analise',
-    platform: 'todas',
+    label: 'Fediverso PeerTube (Aberto)',
+    query: 'creative coding blender animation',
+    videoType: 'tutorial',
+    platform: 'peertube',
   },
   {
-    label: 'Vídeos .MP4 em Domínio Público',
+    label: 'Vídeos .MP4 no Mastodon',
+    query: 'animation',
+    videoType: 'curto',
+    platform: 'mastodon',
+  },
+  {
+    label: 'Acervo Aberto (.MP4 Direto)',
     query: 'science space documentary',
     videoType: 'documentario',
     platform: 'archive',
@@ -110,6 +120,8 @@ export function ExploreView({
   const [query, setQuery] = useState('');
   const [urlInput, setUrlInput] = useState('');
   const [platform, setPlatform] = useState<SocialPlatform>('todas');
+  const [customPlatform, setCustomPlatform] = useState('');
+  const [formHint, setFormHint] = useState<string | null>(null);
   const [videoType, setVideoType] = useState<VideoTypeFilter>('todos');
   const [categoryOverrides, setCategoryOverrides] = useState<Record<string, string>>({});
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
@@ -120,17 +132,34 @@ export function ExploreView({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormHint(null);
     setSelectedIds({});
     if (mode === 'topic') {
-      if (!query.trim()) return;
-      await onSearch(query.trim(), platform, videoType);
+      if (!query.trim()) {
+        setFormHint('Digite um tema para procurar vídeos.');
+        return;
+      }
+      if (platform === 'custom' && customPlatform.trim().length < 2) {
+        setFormHint('Informe o nome ou domínio da rede social personalizada (ex.: douyin.com, sharechat.com).');
+        return;
+      }
+      await onSearch(
+        query.trim(),
+        platform,
+        videoType,
+        platform === 'custom' ? customPlatform.trim() : undefined
+      );
     } else {
-      if (!urlInput.trim()) return;
+      if (!urlInput.trim()) {
+        setFormHint('Cole uma URL pública para inspecionar.');
+        return;
+      }
       await onInspectUrl(urlInput.trim(), videoType);
     }
   };
 
   const handleQuickSearch = async (preset: (typeof QUICK_TOPICS)[number]) => {
+    setFormHint(null);
     setMode('topic');
     setQuery(preset.query);
     setPlatform(preset.platform);
@@ -260,24 +289,61 @@ export function ExploreView({
 
               {mode === 'topic' && (
                 <div className="space-y-2">
-                  <span className="block text-xs font-medium text-slate-500">
-                    Rede social ou acervo
-                  </span>
+                  <label
+                    htmlFor="network-select"
+                    className="block text-xs font-medium text-slate-500"
+                  >
+                    Rede social ou acervo (todas as redes + personalizada)
+                  </label>
                   <select
+                    id="network-select"
                     value={platform}
                     onChange={(e) => setPlatform(e.target.value as SocialPlatform)}
                     aria-label="Selecionar rede social"
-                    className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 focus:border-blue-600 focus:outline-none"
+                    className="h-9 w-full sm:w-auto min-w-[240px] rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 focus:border-blue-600 focus:outline-none"
                   >
-                    {PLATFORMS.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
+                    {NETWORK_GROUP_ORDER.map((groupKey) => {
+                      const items = SOCIAL_NETWORKS.filter((n) => n.group === groupKey);
+                      if (items.length === 0) return null;
+                      return (
+                        <optgroup key={groupKey} label={NETWORK_GROUP_LABELS[groupKey]}>
+                          {items.map((n) => (
+                            <option key={n.id} value={n.id}>
+                              {n.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    })}
                   </select>
                 </div>
               )}
             </div>
+
+            {mode === 'topic' && platform === 'custom' && (
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+                <label
+                  htmlFor="custom-platform-input"
+                  className="block text-xs font-medium text-slate-700"
+                >
+                  Nome ou domínio de qualquer outra rede social (mesmo que ainda não listada)
+                </label>
+                <input
+                  id="custom-platform-input"
+                  type="text"
+                  value={customPlatform}
+                  onChange={(e) => setCustomPlatform(e.target.value)}
+                  placeholder="Ex.: douyin.com, xiaohongshu.com, sharechat.com, ok.ru, niconico.jp, pixelfed.social..."
+                  className="mt-1.5 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none"
+                />
+              </div>
+            )}
+
+            {formHint && (
+              <p role="alert" className="text-xs font-medium text-amber-800">
+                {formHint}
+              </p>
+            )}
           </div>
         </form>
       </section>

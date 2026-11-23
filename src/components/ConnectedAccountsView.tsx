@@ -6,9 +6,11 @@ import {
   Download,
   ExternalLink,
   FolderCheck,
+  Globe,
   Link2,
   LogOut,
   RefreshCw,
+  Search,
   UserCheck,
 } from 'lucide-react';
 import type {
@@ -30,6 +32,33 @@ interface ConnectedAccountsViewProps {
   onNotify: (msg: string) => void;
 }
 
+const IMPORT_ACTION_LABELS: Partial<Record<OAuthProviderId, string>> = {
+  youtube: 'Importar Vídeos Curtidos',
+  reddit: 'Importar Posts Salvos',
+  mastodon: 'Importar Bookmarks (.MP4)',
+  vimeo: 'Importar Vídeos Curtidos',
+  twitch: 'Importar Vídeos do Canal',
+  dailymotion: 'Importar Favoritos',
+  tiktok: 'Importar Vídeos da Conta',
+  x: 'Importar Bookmarks com Vídeo',
+  pinterest: 'Importar Pins Salvos',
+  instagram: 'Importar Reels da Conta',
+};
+
+const PROVIDER_PLATFORM_NAMES: Record<OAuthProviderId, string> = {
+  youtube: 'YouTube',
+  reddit: 'Reddit',
+  twitch: 'Twitch',
+  vimeo: 'Vimeo',
+  dailymotion: 'Dailymotion',
+  tiktok: 'TikTok',
+  instagram: 'Instagram',
+  x: 'X (Twitter)',
+  linkedin: 'LinkedIn',
+  pinterest: 'Pinterest',
+  mastodon: 'Mastodon',
+};
+
 export function ConnectedAccountsView({
   categories,
   downloadingIds,
@@ -46,6 +75,8 @@ export function ConnectedAccountsView({
   const [importedPosts, setImportedPosts] = useState<SocialPostResult[]>([]);
   const [categoryOverrides, setCategoryOverrides] = useState<Record<string, string>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [providerFilter, setProviderFilter] = useState('');
+  const [mastodonInstance, setMastodonInstance] = useState('mastodon.social');
 
   const loadStatus = useCallback(async () => {
     try {
@@ -97,11 +128,25 @@ export function ConnectedAccountsView({
     }
   };
 
-  const handleConnect = async (provider: OAuthProviderId) => {
+  const handleConnect = async (p: OAuthProviderStatus) => {
     setErrorMessage(null);
-    setConnectingProvider(provider);
+    setConnectingProvider(p.provider);
     try {
-      const res = await fetch(`/api/auth/${provider}/url`);
+      let endpoint = `/api/auth/${p.provider}/url`;
+      if (p.dynamicInstance) {
+        const cleanHost = mastodonInstance
+          .trim()
+          .replace(/^https?:\/\//i, '')
+          .split('/')[0];
+        if (!cleanHost || !cleanHost.includes('.')) {
+          setConnectingProvider(null);
+          setErrorMessage('Informe um domínio válido do Fediverso (ex.: mastodon.social, bolha.us, fosstodon.org).');
+          return;
+        }
+        endpoint = `/api/auth/mastodon/url?instance=${encodeURIComponent(cleanHost)}`;
+      }
+
+      const res = await fetch(endpoint);
       const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok || !data.url) {
         setConnectingProvider(null);
@@ -131,11 +176,8 @@ export function ConnectedAccountsView({
       },
       body: JSON.stringify({ provider }),
     });
-    setImportedPosts((prev) =>
-      prev.filter((p) =>
-        provider === 'youtube' ? p.platform !== 'YouTube' : p.platform !== 'Reddit'
-      )
-    );
+    const platName = PROVIDER_PLATFORM_NAMES[provider];
+    setImportedPosts((prev) => prev.filter((p) => p.platform !== platName));
     onNotify('Conta desconectada.');
     await loadStatus();
   };
@@ -168,6 +210,7 @@ export function ConnectedAccountsView({
   const renderProviderCard = (p: OAuthProviderStatus) => {
     const isConnecting = connectingProvider === p.provider;
     const isFetching = fetchingSaved === p.provider;
+    const isActionable = p.configured || Boolean(p.dynamicInstance);
 
     return (
       <article
@@ -178,10 +221,10 @@ export function ConnectedAccountsView({
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs text-slate-500">
-                OAuth 2.0 ·{' '}
+                {p.dynamicInstance ? 'Fediverso OAuth 2.0' : 'OAuth 2.0'} ·{' '}
                 {p.connected ? (
                   <span className="font-medium text-emerald-700">Conectado</span>
-                ) : p.configured ? (
+                ) : isActionable ? (
                   <span className="font-medium text-slate-700">Pronto para conectar</span>
                 ) : (
                   <span className="font-medium text-amber-700">Aguardando credenciais</span>
@@ -190,10 +233,15 @@ export function ConnectedAccountsView({
               <h2 className="mt-1 text-base font-semibold text-slate-900">
                 {p.label}
               </h2>
+              <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                {p.description}
+              </p>
             </div>
 
             {p.connected ? (
               <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+            ) : p.dynamicInstance ? (
+              <Globe className="h-5 w-5 shrink-0 text-blue-600" />
             ) : (
               <Link2 className="h-5 w-5 shrink-0 text-slate-400" />
             )}
@@ -217,10 +265,34 @@ export function ConnectedAccountsView({
                 <p className="text-sm font-medium text-slate-900 truncate">
                   {p.username}
                 </p>
-                <p className="text-xs text-slate-500">
-                  Sessão ativa no servidor
+                <p className="text-xs text-slate-500 truncate">
+                  {p.instanceHost
+                    ? `Conectado em ${p.instanceHost}`
+                    : 'Sessão ativa no servidor'}
                 </p>
               </div>
+            </div>
+          )}
+
+          {p.dynamicInstance && !p.connected && (
+            <div className="space-y-1.5 border-t border-slate-100 pt-4">
+              <label
+                htmlFor="mastodon-instance-input"
+                className="block text-xs font-medium text-slate-600"
+              >
+                Servidor ou instância do Fediverso
+              </label>
+              <input
+                id="mastodon-instance-input"
+                type="text"
+                value={mastodonInstance}
+                onChange={(e) => setMastodonInstance(e.target.value)}
+                placeholder="Ex.: mastodon.social, bolha.us, fosstodon.org"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:outline-none"
+              />
+              <p className="text-xs text-slate-500 leading-relaxed">
+                {p.envHint}
+              </p>
             </div>
           )}
 
@@ -245,15 +317,11 @@ export function ConnectedAccountsView({
                 {copiedUrl === p.callbackUrl ? 'Copiado' : 'Copiar'}
               </button>
             </div>
-            {!p.configured && (
+            {!isActionable && (
               <p className="text-xs text-slate-500 leading-relaxed">
                 Defina{' '}
-                <code className="font-mono text-slate-700">
-                  {p.provider === 'youtube'
-                    ? 'GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET'
-                    : 'REDDIT_CLIENT_ID e REDDIT_CLIENT_SECRET'}
-                </code>{' '}
-                nas configurações de Secrets do ambiente para habilitar este login.
+                <code className="font-mono text-slate-700">{p.envHint}</code>{' '}
+                nos Secrets do ambiente para habilitar este login.
               </p>
             )}
           </div>
@@ -262,19 +330,23 @@ export function ConnectedAccountsView({
         <div className="mt-6 flex flex-wrap items-center gap-2.5">
           {p.connected ? (
             <>
-              <button
-                type="button"
-                disabled={isFetching}
-                onClick={() => handleLoadSavedVideos(p.provider)}
-                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60 whitespace-nowrap"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
-                {isFetching
-                  ? 'Carregando...'
-                  : p.provider === 'youtube'
-                    ? 'Importar Vídeos Curtidos'
-                    : 'Importar Posts Salvos'}
-              </button>
+              {p.supportsImport ? (
+                <button
+                  type="button"
+                  disabled={isFetching}
+                  onClick={() => handleLoadSavedVideos(p.provider)}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60 whitespace-nowrap"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+                  {isFetching
+                    ? 'Carregando...'
+                    : IMPORT_ACTION_LABELS[p.provider] || 'Importar Vídeos Salvos'}
+                </button>
+              ) : (
+                <div className="flex-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs font-medium text-emerald-800 whitespace-nowrap">
+                  Perfil conectado
+                </div>
+              )}
 
               <button
                 type="button"
@@ -288,8 +360,8 @@ export function ConnectedAccountsView({
           ) : (
             <button
               type="button"
-              disabled={isConnecting || !p.configured}
-              onClick={() => handleConnect(p.provider)}
+              disabled={isConnecting || !isActionable}
+              onClick={() => handleConnect(p)}
               className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 whitespace-nowrap"
             >
               <Link2 className="h-3.5 w-3.5" />
@@ -303,15 +375,42 @@ export function ConnectedAccountsView({
     );
   };
 
+  const providersList = authStatus?.providers || [];
+  const filteredProviders = providersList.filter((p) => {
+    const q = providerFilter.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      p.label.toLowerCase().includes(q) ||
+      p.provider.toLowerCase().includes(q) ||
+      p.description.toLowerCase().includes(q)
+    );
+  });
+
   return (
     <div className="space-y-8">
       <section className="rounded-xl border border-slate-200 bg-white p-6">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-          Contas Sociais Conectadas (OAuth 2.0)
-        </h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Conecte suas contas do YouTube ou Reddit via pop-up oficial para importar seus vídeos curtidos ou salvos e organizá-los automaticamente em pastas por categoria.
-        </p>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+              Contas Sociais Conectadas (OAuth 2.0 & Fediverso)
+            </h1>
+            <p className="mt-1 text-sm text-slate-600">
+              Conecte YouTube, TikTok, Instagram, X, Reddit, Twitch, Vimeo, Dailymotion, Pinterest, LinkedIn ou qualquer servidor Mastodon/Fediverso via pop-up oficial para importar seus vídeos e organizá-los por categoria.
+            </p>
+          </div>
+
+          <div className="relative w-full md:w-72 shrink-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={providerFilter}
+              onChange={(e) => setProviderFilter(e.target.value)}
+              placeholder="Filtrar rede social..."
+              aria-label="Filtrar redes sociais OAuth"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:bg-white focus:outline-none"
+            />
+          </div>
+        </div>
       </section>
 
       {errorMessage && (
@@ -327,10 +426,23 @@ export function ConnectedAccountsView({
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div className="h-56 animate-pulse rounded-xl border border-slate-200 bg-white" />
           <div className="h-56 animate-pulse rounded-xl border border-slate-200 bg-white" />
+          <div className="h-56 animate-pulse rounded-xl border border-slate-200 bg-white" />
+          <div className="h-56 animate-pulse rounded-xl border border-slate-200 bg-white" />
+        </div>
+      ) : filteredProviders.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-600">
+          Nenhuma rede social encontrada para "{providerFilter}".{' '}
+          <button
+            type="button"
+            onClick={() => setProviderFilter('')}
+            className="font-medium text-blue-600 hover:underline"
+          >
+            Mostrar todas
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          {(authStatus?.providers || []).map(renderProviderCard)}
+          {filteredProviders.map(renderProviderCard)}
         </div>
       )}
 

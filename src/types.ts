@@ -1,12 +1,4 @@
-export type SocialPlatform =
-  | 'todas'
-  | 'youtube'
-  | 'tiktok'
-  | 'instagram'
-  | 'x'
-  | 'reddit'
-  | 'vimeo'
-  | 'archive';
+export type SocialPlatform = string;
 
 export type VideoTypeFilter =
   | 'todos'
@@ -98,20 +90,35 @@ export interface DownloadQueueEntry {
   savedItem?: SavedMediaItem;
 }
 
-export type OAuthProviderId = 'youtube' | 'reddit';
+export type OAuthProviderId =
+  | 'youtube'
+  | 'reddit'
+  | 'twitch'
+  | 'vimeo'
+  | 'dailymotion'
+  | 'tiktok'
+  | 'instagram'
+  | 'x'
+  | 'linkedin'
+  | 'pinterest'
+  | 'mastodon';
 
 export interface OAuthProviderStatus {
   provider: OAuthProviderId;
   label: string;
+  description: string;
   configured: boolean;
   connected: boolean;
+  dynamicInstance?: boolean;
+  instanceHost?: string;
+  supportsImport: boolean;
   username?: string;
   avatarUrl?: string;
   callbackUrl: string;
+  envHint: string;
 }
 
 export interface SocialAuthStatusResponse {
   appBaseUrl: string;
   providers: OAuthProviderStatus[];
 }
-

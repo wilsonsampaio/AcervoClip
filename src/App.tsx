@@ -80,7 +80,8 @@ export default function App() {
   const handleSearch = async (
     query: string,
     platform: SocialPlatform,
-    videoType: VideoTypeFilter
+    videoType: VideoTypeFilter,
+    customPlatform?: string
   ) => {
     setSearching(true);
     setSearchError(null);
@@ -90,7 +91,7 @@ export default function App() {
       const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, platform, videoType }),
+        body: JSON.stringify({ query, platform, customPlatform, videoType }),
       });
       const data = (await res.json()) as {
         results?: SocialPostResult[];
